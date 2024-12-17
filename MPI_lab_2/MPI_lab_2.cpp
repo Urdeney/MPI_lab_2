@@ -11,10 +11,10 @@ using namespace std::chrono;
 
 #define A 0
 #define B 1
-
+#define COUNT 1000000
 
 // Функция для численного интегрирования по формуле прямоугольников
-double rectangularIntegrate(double a, double b, int n) {
+double rectangularIntegration(double a, double b, int n) {
     double len = (b - a) / n;
     double result = 0.0;
 
@@ -37,20 +37,18 @@ int main()
     int Rank = 0;
     int ProcessCount = 0;
 
-    MPI_Status Status;
-
     int a = A;
     int b = B;
 
-    double res;
+    double res=0;
+    double local_res=0;
 
-
+    //Инициализаиця MPI
     MPI_Init(NULL, NULL);
-
     MPI_Comm_rank(MPI_COMM_WORLD, &Rank);
     MPI_Comm_size(MPI_COMM_WORLD, &ProcessCount);
 
-    int WorkerProcessCount = ProcessCount - 1;
+    int NumProcessCount = ProcessCount - 1;
 
     steady_clock::time_point start = high_resolution_clock::now();
 
@@ -61,56 +59,67 @@ int main()
         //Если процесс единственный
         if (ProcessCount == 1) {
 
-            rectangularIntegrate(A, B, 10);
+            steady_clock::time_point start = high_resolution_clock::now();
+
+            for (int i = 0; i < COUNT; i++) {
+                rectangularIntegration(A, B, NumProcessCount - 1);
+            }
 
             steady_clock::time_point end = high_resolution_clock::now();
 
-            cout << "Single-process run\n" << duration_cast<milliseconds>(end - start).count() << endl;
+            cout << "Single-process run\n" << duration_cast<milliseconds>(end - start).count() << " miliseconds" << endl;
 
+            //Завершение MPI (в случае одного процесса)
             MPI_Finalize();
 
             return 0;
 
         }
+
+
     }
 
+    for (int i = 0; i < COUNT; i++) {
 
-    //Отправка A
-    MPI_Bcast(&a, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        //Широковещательная отправка левой границы интервала
+        MPI_Bcast(&a, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    //Отправка B
-    MPI_Bcast(&b, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        //Широковещательная отправка правой границы интервала
+        MPI_Bcast(&b, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    //Отправка N
-    MPI_Bcast(&WorkerProcessCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
-
-    //cout << "Hello i am working proccess" << endl;
-
-    double len = ((b - a) / (double) WorkerProcessCount);
-    double local_a = a + Rank * len;
-    double local_b = local_a + len;
-    double local_res= (exp(local_a) + exp(local_b)) / 2;
-    local_res*= len;
-    if (Rank == WorkerProcessCount) { local_res = 0;} //TODO убрать процесс- корень (лишний поток)
-
+        //Широковещательная отправка количества numproc-процессов
+        MPI_Bcast(&NumProcessCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
     
-    cout << a << "\t" << b << "\t" << WorkerProcessCount << "\t" << Rank << endl;
-    /*cout << "LOCAL len = " << len << endl;
-    cout << "LOCAL A = " <<  local_a << endl;
-    cout << "LOCAL B = " << local_b << endl;
-    */
-    cout << "LOCAL RES = " << local_res << endl;
+        //Работа внутри numproc-процесса
+        if (Rank > 0) {
+            // Длина подинтервала
+            double len = ((b - a) / (double)NumProcessCount);
+            // Левая граница подинтервала
+            double local_a = a + (Rank - 1) * len;
+            // Правая граница подинтервала
+            double local_b = local_a + len;
+            // Значение функции в подинтервале
+            local_res = (exp(local_a) + exp(local_b)) / 2;
+            local_res *= len;
+        }
 
-    MPI_Reduce(&local_res, &res, 1, MPI_DOUBLE,MPI_SUM,0,MPI_COMM_WORLD);
+        //Слив значений из процессов в сумму
+        MPI_Reduce(&local_res, &res, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    MPI_Barrier(MPI_COMM_WORLD);
+        //Барьерная синхронизация процессов
+        MPI_Barrier(MPI_COMM_WORLD);
 
-    
+    }
+
+    //Подсчет времени работы
     if (Rank == 0) {
-        cout <<"FINAL RES = " << res << endl;
-        cout << rectangularIntegrate(A, B, 3) << endl;
+        
+        steady_clock::time_point end = high_resolution_clock::now();
+        cout << "Multi-process run\n" << duration_cast<milliseconds>(end - start).count() <<" miliseconds" << endl;
+        cout << "Amount of processes " << NumProcessCount << endl;
     }
 
+    //Завершение MPI
     MPI_Finalize();
 	
 	return 0;
