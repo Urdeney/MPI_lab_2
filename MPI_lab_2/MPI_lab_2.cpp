@@ -79,7 +79,7 @@ int main()
 
     }
 
-    for (int i = 0; i < COUNT; i++) {
+    for (int i = 0; i < COUNT/NumProcessCount; i++) {
 
         //Широковещательная отправка левой границы интервала
         MPI_Bcast(&a, 1, MPI_INT, 0, MPI_COMM_WORLD);
